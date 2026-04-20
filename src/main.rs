@@ -118,8 +118,14 @@ fn forward_stream_data_to_child_process(
             }
         };
 
-        child_stdin.write_all(&read_buffer[..num_bytes_read])?;
-        child_stdin.flush()?;
+        if let Err(e) = child_stdin.write_all(&read_buffer[..num_bytes_read]) {
+            let _ = control_tx.send(ControlMessage::KillChild);
+            return Err(anyhow::anyhow!("Failed to write to child stdin: {e}"));
+        }
+        if let Err(e) = child_stdin.flush() {
+            let _ = control_tx.send(ControlMessage::KillChild);
+            return Err(anyhow::anyhow!("Failed to flush child stdin: {e}"));
+        }
     }
 }
 
