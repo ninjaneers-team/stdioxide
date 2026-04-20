@@ -134,6 +134,7 @@ fn serve_output_on_stream(
     output_state: Arc<NotifyableOutputState>,
     control_tx: mpsc::Sender<ControlMessage>,
     serving_behavior: ServingBehavior,
+    label: &'static str,
 ) -> Result<(), anyhow::Error> {
     loop {
         let buffered_data = {
@@ -152,7 +153,7 @@ fn serve_output_on_stream(
 
             if guard.buffer.is_empty() && guard.eof {
                 eprintln!(
-                    "[protocol] EOF reached and no buffered output; closing client connection"
+                    "[{label}] EOF reached and no buffered output; closing client connection"
                 );
                 return Ok(());
             }
@@ -205,7 +206,7 @@ fn serve_output_on_stream(
         }
 
         if guard.eof && guard.buffer.is_empty() {
-            eprintln!("[protocol] EOF reached; closing client connection");
+            eprintln!("[{label}] EOF reached; closing client connection");
             return Ok(());
         }
     }
@@ -242,6 +243,7 @@ fn protocol_server(
                         Arc::clone(&stdout_state),
                         control_tx,
                         ServingBehavior::KillChildOnDisconnect,
+                        "protocol",
                     );
                 }),
             )
@@ -287,6 +289,7 @@ fn stderr_server(
                             stderr_state,
                             control_tx,
                             ServingBehavior::DoNotKillChildOnDisconnect,
+                            "stderr",
                         );
                         has_active_connection.store(false, Ordering::Release);
                     });
