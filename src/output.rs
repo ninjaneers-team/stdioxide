@@ -24,6 +24,12 @@ pub struct NotifyableOutputState {
 
 impl NotifyableOutputState {
     pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl Default for NotifyableOutputState {
+    fn default() -> Self {
         Self {
             state: Mutex::new(OutputState {
                 buffer: Vec::new(),
