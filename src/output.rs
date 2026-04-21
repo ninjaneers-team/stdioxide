@@ -6,7 +6,7 @@ use std::{
 
 use crate::control::ControlMessage;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ServingBehavior {
     KillChildOnDisconnect,
     DoNotKillChildOnDisconnect,
@@ -133,7 +133,7 @@ pub fn serve_output_on_stream(
             // Something went wrong while writing to the stream, and we weren’t able to write all the buffered data.
             // We treat this as the connection being no longer writable and exit the loop (and potentially kill the
             // child process, depending on the serving behavior).
-            if let ServingBehavior::KillChildOnDisconnect = serving_behavior {
+            if serving_behavior == ServingBehavior::KillChildOnDisconnect {
                 let _ = control_tx.send(ControlMessage::KillChild);
             }
             return Ok(());

@@ -2,7 +2,7 @@ use std::sync::mpsc;
 
 use subprocess::Job;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ControlMessage {
     KillChild,
 }
