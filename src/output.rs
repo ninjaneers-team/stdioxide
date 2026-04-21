@@ -151,3 +151,50 @@ pub fn serve_output_on_stream(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Cursor;
+
+    #[test]
+    fn test_pump_output_to_state_empty_input() {
+        let state = Arc::new(NotifyableOutputState::new());
+        let input = Cursor::new(Vec::<u8>::new());
+
+        let result = pump_output_to_state(input, Arc::clone(&state), "test");
+        assert!(result.is_ok());
+
+        let guard = state.state.lock().unwrap();
+        assert!(guard.buffer.is_empty());
+        assert!(guard.eof);
+    }
+
+    #[test]
+    fn test_pump_output_to_state_single_chunk() {
+        let state = Arc::new(NotifyableOutputState::new());
+        let data = b"Hello, World!";
+        let input = Cursor::new(data.to_vec());
+
+        let result = pump_output_to_state(input, Arc::clone(&state), "test");
+        assert!(result.is_ok());
+
+        let guard = state.state.lock().unwrap();
+        assert_eq!(guard.buffer, data);
+        assert!(guard.eof);
+    }
+
+    #[test]
+    fn test_pump_output_to_state_multiple_chunks() {
+        let state = Arc::new(NotifyableOutputState::new());
+        let data = vec![0u8; 16384]; // Larger than buffer size (8192).
+        let input = Cursor::new(data.clone());
+
+        let result = pump_output_to_state(input, Arc::clone(&state), "test");
+        assert!(result.is_ok());
+
+        let guard = state.state.lock().unwrap();
+        assert_eq!(guard.buffer, data);
+        assert!(guard.eof);
+    }
+}
