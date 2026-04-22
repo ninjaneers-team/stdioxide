@@ -136,10 +136,10 @@ impl TestForwarder {
         let mut last_error = None;
 
         for attempt in 0..MAX_RETRIES {
-            // Allocate ports - registered in global registry
+            // Allocate ports--registered in global registry.
             let ports = AllocatedPorts::new();
 
-            // Try to start with these ports
+            // Try to start with these ports.
             match Self::try_start_with_ports(command, args, ports) {
                 Ok(forwarder) => return forwarder,
                 Err(e) => {
@@ -161,20 +161,14 @@ impl TestForwarder {
     }
 
     /// Try to start a new `stdioxide` forwarder with pre-allocated ports.
-    /// Returns an error if spawning fails or the forwarder doesn't become ready.
+    /// Returns an error if spawning fails or the forwarder doesn’t become ready.
     fn try_start_with_ports(
         command: &str,
         args: &[&str],
         ports: AllocatedPorts,
     ) -> Result<Self, String> {
-        let process = Self::spawn_process(
-            command,
-            args,
-            ports.protocol_port(),
-            ports.stderr_port(),
-            ports.health_port(),
-        )
-        .map_err(|e| format!("Failed to spawn process: {}", e))?;
+        let process = Self::spawn_process(command, args, &ports)
+            .map_err(|e| format!("Failed to spawn process: {}", e))?;
 
         let forwarder = Self { process, ports };
 
@@ -183,7 +177,7 @@ impl TestForwarder {
             .try_wait_for_ready()
             .map_err(|e| format!("Failed to become ready: {}", e))?;
 
-        // Ports remain in the forwarder and will be released when it's dropped
+        // Ports remain in the forwarder and will be released when it’s dropped.
         Ok(forwarder)
     }
 
@@ -192,9 +186,7 @@ impl TestForwarder {
     fn spawn_process(
         command: &str,
         args: &[&str],
-        protocol_port: u16,
-        stderr_port: u16,
-        health_port: u16,
+        ports: &AllocatedPorts,
     ) -> std::io::Result<Child> {
         // Get the path to the `stdioxide` binary.
         // In integration tests, we need to use the binary from the target directory.
@@ -203,11 +195,11 @@ impl TestForwarder {
 
         let mut cmd = Command::new(&bin_path);
         cmd.arg("--protocol-port")
-            .arg(protocol_port.to_string())
+            .arg(ports.protocol_port().to_string())
             .arg("--stderr-port")
-            .arg(stderr_port.to_string())
+            .arg(ports.stderr_port().to_string())
             .arg("--health-port")
-            .arg(health_port.to_string())
+            .arg(ports.health_port().to_string())
             .arg(command);
 
         for arg in args {
@@ -221,15 +213,16 @@ impl TestForwarder {
     }
 
     /// Try to wait for the forwarder to be ready by attempting to connect to the health port.
-    /// Returns an error if the forwarder doesn't become ready in time.
+    /// Returns an error if the forwarder doesn’t become ready in time.
     fn try_wait_for_ready(&self) -> Result<(), String> {
-        // Try to connect with a shorter timeout since some processes may exit quickly.
         const NUM_ATTEMPTS: usize = 30;
         let mut last_error = None;
-        
+
         for attempt in 0..NUM_ATTEMPTS {
             match TcpStream::connect_timeout(
-                &format!("127.0.0.1:{}", self.ports.health_port()).parse().unwrap(),
+                &format!("127.0.0.1:{}", self.ports.health_port())
+                    .parse()
+                    .unwrap(),
                 Duration::from_millis(100),
             ) {
                 Ok(_) => return Ok(()),
@@ -241,7 +234,7 @@ impl TestForwarder {
                 }
             }
         }
-        
+
         Err(format!(
             "Forwarder did not become ready in time on port {}. Last error: {}",
             self.ports.health_port(),
@@ -419,8 +412,8 @@ fn test_forwarder_exposes_three_tcp_ports() {
 
     // Verify all three ports are accessible.
     // Note: The `connect_*()` methods already `panic!()` if connection fails, so the real
-    // accessibility check happens *there*. The `.peer_addr().is_ok()` is redundant but
-    // serves as documentation.
+    //       accessibility check happens *there*. The `.peer_addr().is_ok()` is redundant but
+    //       serves as documentation.
     assert!(
         forwarder.connect_protocol().peer_addr().is_ok(),
         "Protocol port should be accessible"
@@ -443,18 +436,14 @@ fn test_default_port_values() {
     //   * [x] `7002` for the health port
 
     // Test setup: Ensure default ports are available.
-    // If they're not, this is an environment issue, not a test failure.
-    let _port_7000 = TcpListener::bind("127.0.0.1:7000")
-        .expect("TEST SETUP FAILED: Default port 7000 is not available. This is an environment issue, not a test failure.");
-    let _port_7001 = TcpListener::bind("127.0.0.1:7001")
-        .expect("TEST SETUP FAILED: Default port 7001 is not available. This is an environment issue, not a test failure.");
-    let _port_7002 = TcpListener::bind("127.0.0.1:7002")
-        .expect("TEST SETUP FAILED: Default port 7002 is not available. This is an environment issue, not a test failure.");
-
-    // Release the ports so stdioxide can bind to them
-    drop(_port_7000);
-    drop(_port_7001);
-    drop(_port_7002);
+    // If they’re not, this is an environment issue, not a test failure.
+    for port in 7000..=7002 {
+        let error_message = format!(
+            "TEST SETUP FAILED: Default port {port} is not available. This is an environment issue, not a test failure."
+        );
+        let _ = TcpListener::bind(format!("127.0.0.1:{port}")).expect(&error_message);
+        // Port is immediately released here.
+    }
 
     // Launch `stdioxide` *without* specifying ports to verify it uses the defaults.
     let bin_path = std::env::var("CARGO_BIN_EXE_stdioxide")
@@ -488,18 +477,12 @@ fn test_default_port_values() {
     );
 
     // Verify we can connect to all three default ports.
-    assert!(
-        TcpStream::connect("127.0.0.1:7000").is_ok(),
-        "Should connect to default protocol port 7000"
-    );
-    assert!(
-        TcpStream::connect("127.0.0.1:7001").is_ok(),
-        "Should connect to default stderr port 7001"
-    );
-    assert!(
-        TcpStream::connect("127.0.0.1:7002").is_ok(),
-        "Should connect to default health port 7002"
-    );
+    for port in 7000..=7002 {
+        assert!(
+            TcpStream::connect(format!("127.0.0.1:{port}")).is_ok(),
+            "Should connect to default port {port}"
+        );
+    }
 
     // Clean up.
     let _ = process.kill();
@@ -516,7 +499,7 @@ fn test_port_override_via_environment_variables() {
     let custom_stderr = ports.stderr_port();
     let custom_health = ports.health_port();
 
-    // Launch stdioxide with environment variables (NOT command-line args) to test env var override.
+    // Launch `stdioxide` with environment variables (NOT command-line args) to test env var override.
     let bin_path = std::env::var("CARGO_BIN_EXE_stdioxide")
         .unwrap_or_else(|_| "target/debug/stdioxide".to_string());
 
@@ -555,30 +538,25 @@ fn test_port_override_via_environment_variables() {
     // Verify we can connect to all three custom ports.
     assert!(
         TcpStream::connect(("127.0.0.1", custom_protocol)).is_ok(),
-        "Should connect to custom protocol port {}",
-        custom_protocol
+        "Should connect to custom protocol port {custom_protocol}",
     );
     assert!(
         TcpStream::connect(("127.0.0.1", custom_stderr)).is_ok(),
-        "Should connect to custom stderr port {}",
-        custom_stderr
+        "Should connect to custom stderr port {custom_stderr}",
     );
     assert!(
         TcpStream::connect(("127.0.0.1", custom_health)).is_ok(),
-        "Should connect to custom health port {}",
-        custom_health
+        "Should connect to custom health port {custom_health}",
     );
 
     // Clean up.
     let _ = process.kill();
     let _ = process.wait();
-
-    // ports is dropped here, releasing the registry entries
 }
 
 #[test]
 fn test_stdout_sent_over_protocol_port() {
-    // * [x] The forwarder sends the child process's `stdout` stream over the protocol port.
+    // * [x] The forwarder sends the child process’s `stdout` stream over the protocol port.
 
     let forwarder = TestForwarder::start("bash", &["-c", "echo 'Hello from stdout' && sleep 5"]);
 
@@ -591,20 +569,20 @@ fn test_stdout_sent_over_protocol_port() {
 
 #[test]
 fn test_stdin_received_on_protocol_port() {
-    // * [x] The forwarder receives input for the child process's `stdin` stream on the protocol port.
-    // * [x] Data received on the protocol port is forwarded to the child process's `stdin` while the connection is active.
+    // * [x] The forwarder receives input for the child process’s `stdin` stream on the protocol port.
+    // * [x] Data received on the protocol port is forwarded to the child process’s `stdin` while the connection is active.
 
     let forwarder = TestForwarder::start("cat", &[]);
 
     let mut stream = forwarder.connect_protocol();
 
-    // Send data to stdin via the protocol port.
+    // Send data to `stdin` via the protocol port.
     stream
         .write_all(b"test input\n")
         .expect("Failed to write to protocol port");
     stream.flush().expect("Failed to flush");
 
-    // Read back the echoed output from stdout.
+    // Read back the echoed output from `stdout`.
     let output = read_all_available(&mut stream, Duration::from_millis(500));
     let output_str = String::from_utf8_lossy(&output);
 
@@ -613,9 +591,9 @@ fn test_stdin_received_on_protocol_port() {
 
 #[test]
 fn test_stderr_sent_over_stderr_port() {
-    // * [x] The forwarder sends the child process's `stderr` stream over the stderr port.
+    // * [x] The forwarder sends the child process’s `stderr` stream over the `stderr` port.
 
-    // Use a bash command that writes to stderr and then waits.
+    // Use a `bash` command that writes to `stderr` and then waits.
     let forwarder = TestForwarder::start("bash", &["-c", "echo 'error message' >&2 && sleep 5"]);
 
     let mut stream = forwarder.connect_stderr();
@@ -644,37 +622,37 @@ fn test_protocol_port_single_client_only() {
     assert!(String::from_utf8_lossy(&output).contains("response"));
 
     // Second client connection attempt.
-    // The TCP connection might succeed (queued in backlog), but it won't be served.
-    // We verify this by trying to read - if the connection isn't served, we'll timeout.
-    match TcpStream::connect_timeout(
+    // The protocol server only calls `accept()` once, so the second connection
+    // succeeds at the TCP level (queued in backlog) but is never accepted/served.
+    let mut stream2 = TcpStream::connect_timeout(
         &format!("127.0.0.1:{}", forwarder.ports.protocol_port())
             .parse()
             .unwrap(),
         Duration::from_millis(200),
-    ) {
-        Ok(mut stream2) => {
-            // Connection succeeded, but it should not be served.
-            // Try to read with a short timeout - we should get no data.
-            stream2
-                .set_read_timeout(Some(Duration::from_millis(200)))
-                .ok();
-            let mut buf = [0u8; 100];
-            let result = stream2.read(&mut buf);
-            // Either we timeout or get 0 bytes (connection not served).
-            assert!(
-                result.is_err() || matches!(result, Ok(0)),
-                "Second client should not receive data"
-            );
-        }
-        Err(_) => {
-            // Connection was rejected, which is also acceptable behavior.
-        }
-    }
+    )
+    .expect("Second client should connect successfully (TCP handshake completes)");
+
+    // The connection is established but never served--reading should timeout.
+    stream2
+        .set_read_timeout(Some(Duration::from_millis(200)))
+        .expect("Should set read timeout");
+
+    let mut buf = [0u8; 100];
+    let result = stream2.read(&mut buf);
+
+    assert!(
+        result.is_err()
+            && matches!(
+                result.as_ref().unwrap_err().kind(),
+                std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+            ),
+        "Second client should timeout reading (connection never served by protocol server)"
+    );
 }
 
 #[test]
 fn test_stderr_port_single_client_only() {
-    // * [x] The stderr port allows at most one active client connection at a time.
+    // * [x] The `stderr` port allows at most one active client connection at a time.
 
     let forwarder = TestForwarder::start(
         "bash",
@@ -685,11 +663,11 @@ fn test_stderr_port_single_client_only() {
     let _stream1 = forwarder.connect_stderr();
 
     // Second client should connect but be rejected.
-    // According to the stderr_server implementation, it rejects additional connections.
+    // According to the `stderr_server` implementation, it rejects additional connections.
     let stream2 = forwarder.connect_stderr();
 
     // The second connection is made but immediately closed/rejected.
-    // Try to read - should get no data or connection closed.
+    // Try to read--should get no data or connection closed.
     let output = read_all_available(
         &mut stream2.try_clone().unwrap(),
         Duration::from_millis(500),
@@ -725,8 +703,10 @@ fn test_health_port_multiple_clients() {
 
 #[test]
 fn test_protocol_port_buffered_stdout_replay() {
-    // * [x] When a client connects to the protocol port for the first time, it first receives all buffered `stdout` data produced before the connection was established.
-    // * [x] After the buffered `stdout` data has been sent, the client continues to receive newly produced `stdout` data in real time.
+    // * [x] When a client connects to the protocol port for the first time, it first receives all buffered `stdout` data
+    //       produced before the connection was established.
+    // * [x] After the buffered `stdout` data has been sent, the client continues to receive newly produced `stdout` data
+    //       in real time.
 
     // Use a script that produces output immediately and then waits.
     let forwarder = TestForwarder::start(
@@ -772,10 +752,12 @@ fn test_protocol_disconnect_kills_child() {
 
 #[test]
 fn test_stderr_port_buffered_stderr_replay() {
-    // * [x] When a client connects to the stderr port, it first receives all buffered `stderr` data produced before the connection was established.
-    // * [x] After the buffered `stderr` data has been sent, the client continues to receive newly produced `stderr` data in real time.
+    // * [x] When a client connects to the `stderr` port, it first receives all buffered `stderr` data
+    //       produced before the connection was established.
+    // * [x] After the buffered `stderr` data has been sent, the client continues to receive newly produced
+    //       `stderr` data in real time.
 
-    // Use a script that produces stderr immediately and then waits.
+    // Use a script that produces `stderr` immediately and then waits.
     let forwarder = TestForwarder::start(
         "bash",
         &[
@@ -784,7 +766,7 @@ fn test_stderr_port_buffered_stderr_replay() {
         ],
     );
 
-    // Now connect to stderr - buffering ensures we receive output produced before connection.
+    // Now connect to `stderr`--buffering ensures we receive output produced before connection.
     thread::sleep(Duration::from_millis(100));
 
     // Connect and we should receive the buffered output first.
@@ -801,7 +783,8 @@ fn test_stderr_port_buffered_stderr_replay() {
 
 #[test]
 fn test_stderr_disconnect_does_not_kill_child() {
-    // * [x] When a client disconnects from the stderr port, neither the forwarder nor the child process terminate because of that.
+    // * [x] When a client disconnects from the `stderr` port, neither the forwarder nor the child
+    //       process terminate because of that.
 
     let forwarder = TestForwarder::start("sleep", &["10"]);
 
@@ -813,7 +796,7 @@ fn test_stderr_disconnect_does_not_kill_child() {
     // With proactive disconnect detection, disconnect is detected immediately.
     thread::sleep(Duration::from_millis(100));
 
-    // Forwarder should still be running - we can connect to health port.
+    // Forwarder should still be running--we can connect to health port.
     assert!(
         forwarder.connect_health().peer_addr().is_ok(),
         "Forwarder should still be running after stderr disconnect"
@@ -822,7 +805,7 @@ fn test_stderr_disconnect_does_not_kill_child() {
 
 #[test]
 fn test_stderr_port_reconnect_continues_from_current_state() {
-    // * [x] When a client connects to the stderr port, it first receives all buffered `stderr` data
+    // * [x] When a client connects to the `stderr` port, it first receives all buffered `stderr` data
     //       produced before the connection was established and after a previous connection was active
     //       (i.e., no logging data is lost).
 
@@ -836,14 +819,20 @@ fn test_stderr_port_reconnect_continues_from_current_state() {
         "bash",
         &[
             "-c",
-            "echo 'before_connection' >&2; sleep 0.5; echo 'during_first_connection' >&2; sleep 1; echo 'trigger_disconnect' >&2; sleep 1.5; echo 'while_disconnected' >&2; sleep 2; echo 'during_second_connection' >&2; sleep 10",
+            concat!(
+                "echo 'before_connection' >&2; sleep 0.5; ",
+                "echo 'during_first_connection' >&2; sleep 1; ",
+                "echo 'trigger_disconnect' >&2; sleep 1.5; ",
+                "echo 'while_disconnected' >&2; sleep 2; ",
+                "echo 'during_second_connection' >&2; sleep 10",
+            ),
         ],
     );
 
-    // Wait to ensure "before_connection" is buffered
+    // Wait to ensure "before_connection" is buffered.
     thread::sleep(Duration::from_millis(100));
 
-    // First connection - connect, read initial data, then disconnect BEFORE "trigger_disconnect"
+    // First connection--connect, read initial data, then disconnect BEFORE "trigger_disconnect".
     {
         let mut stream = forwarder.connect_stderr();
         // Read for 800ms to get "before_connection" (immediate) and "during_first_connection" (at t=0.5s)
@@ -854,24 +843,35 @@ fn test_stderr_port_reconnect_continues_from_current_state() {
         // Disconnect now (at ~t=1.0s), before "trigger_disconnect" (at t=1.5s)
         let _ = stream.shutdown(std::net::Shutdown::Both);
         drop(stream);
+        assert!(
+            !output_str.contains("trigger_disconnect"),
+            "Should not receive 'trigger_disconnect' in first connection"
+        );
     }
 
-    // Now we're at ~t=1.0s. "trigger_disconnect" will be produced at t=1.5s, which will
+    // Now we’re at ~t=1.0s. "trigger_disconnect" will be produced at t=1.5s, which will
     // cause the server to try writing to the disconnected client and detect the disconnect.
     // With proactive disconnect detection, disconnect is detected quickly.
     // Wait for "while_disconnected" to be produced (at t=3s from start).
     thread::sleep(Duration::from_millis(2300));
 
-    // Second connection - should receive buffered "while_disconnected" and realtime "during_second_connection"
+    // Second connection--should receive all buffered data (trigger_disconnect, while_disconnected)
+    // and realtime data (during_second_connection). No logging data must be lost.
     {
         let mut stream = forwarder.connect_stderr();
-        // Read for 2.5s to get both buffered "while_disconnected" and realtime "during_second_connection"
+        // Read for 2.5s to get buffered and realtime data
         let output = read_all_available(&mut stream, Duration::from_millis(2500));
         let output_str = String::from_utf8_lossy(&output);
 
         assert!(
+            output_str.contains("trigger_disconnect"),
+            "Second client should receive 'trigger_disconnect' (buffered during disconnect), got: {}",
+            output_str
+        );
+
+        assert!(
             output_str.contains("while_disconnected"),
-            "Second client should receive data buffered during disconnect, got: {}",
+            "Second client should receive 'while_disconnected' (buffered during disconnect), got: {}",
             output_str
         );
 
@@ -899,7 +899,7 @@ fn test_output_buffering_prevents_data_loss() {
     // Buffering ensures output is captured even if we connect immediately.
     thread::sleep(Duration::from_millis(100));
 
-    // Now connect - we should receive the buffered output.
+    // Now connect--we should receive the buffered output.
     let mut stdout_stream = forwarder.connect_protocol();
     let stdout_data = read_all_available(&mut stdout_stream, Duration::from_millis(500));
     let stdout_str = String::from_utf8_lossy(&stdout_data);
@@ -929,28 +929,113 @@ fn test_health_port_indicates_readiness() {
 
 #[test]
 fn test_health_checks_do_not_interfere() {
-    // * [x] Health checks on the health port must not interfere with the behavior of the protocol port or the stderr port.
+    // * [x] Health checks on the health port must not interfere with the behavior of the protocol port or the `stderr` port.
 
-    let forwarder = TestForwarder::start("cat", &[]);
+    // Use a process that produces high-volume output on both `stdout` and `stderr`.
+    // Output a unique numbered line every 10ms for 3 seconds (300 lines on each stream).
+    let forwarder = TestForwarder::start(
+        "bash",
+        &[
+            "-c",
+            "for i in {1..300}; do echo \"stdout_line_$i\"; echo \"stderr_line_$i\" >&2; sleep 0.01; done",
+        ],
+    );
 
-    // Perform multiple health checks.
-    for _ in 0..5 {
-        let _health = forwarder.connect_health();
-        thread::sleep(Duration::from_millis(50));
-    }
+    // Spawn a thread to continuously perform health checks for 3.5 seconds.
+    let health_port = forwarder.ports.health_port();
+    let health_check_handle = thread::spawn(move || {
+        let start = std::time::Instant::now();
+        let mut check_count = 0;
+        while start.elapsed() < Duration::from_millis(3500) {
+            if TcpStream::connect(("127.0.0.1", health_port)).is_ok() {
+                check_count += 1;
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+        check_count
+    });
 
-    // Protocol port should still work normally.
+    // Spawn a thread to read from the protocol port (`stdout`).
     let mut protocol_stream = forwarder.connect_protocol();
-    protocol_stream
-        .write_all(b"test data\n")
-        .expect("Failed to write");
-    protocol_stream.flush().expect("Failed to flush");
+    let protocol_handle = thread::spawn(move || {
+        let mut all_output = Vec::new();
+        let mut buffer = [0u8; 8192];
+        protocol_stream
+            .set_read_timeout(Some(Duration::from_secs(4)))
+            .ok();
 
-    let output = read_all_available(&mut protocol_stream, Duration::from_millis(500));
-    assert!(String::from_utf8_lossy(&output).contains("test data"));
+        loop {
+            match protocol_stream.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(n) => all_output.extend_from_slice(&buffer[..n]),
+                Err(e) if e.kind() == std::io::ErrorKind::TimedOut => break,
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
+                Err(_) => break,
+            }
+        }
+        all_output
+    });
 
-    // Stderr port should still work.
-    assert!(forwarder.connect_stderr().peer_addr().is_ok());
+    // Spawn a thread to read from the stderr port (`stderr`).
+    let mut stderr_stream = forwarder.connect_stderr();
+    let stderr_handle = thread::spawn(move || {
+        let mut all_output = Vec::new();
+        let mut buffer = [0u8; 8192];
+        stderr_stream
+            .set_read_timeout(Some(Duration::from_secs(4)))
+            .ok();
+
+        loop {
+            match stderr_stream.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(n) => all_output.extend_from_slice(&buffer[..n]),
+                Err(e) if e.kind() == std::io::ErrorKind::TimedOut => break,
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
+                Err(_) => break,
+            }
+        }
+        all_output
+    });
+
+    // Wait for all threads to complete.
+    let health_check_count = health_check_handle
+        .join()
+        .expect("Health check thread panicked");
+    let protocol_output = protocol_handle.join().expect("Protocol thread panicked");
+    let stderr_output = stderr_handle.join().expect("Stderr thread panicked");
+
+    // Verify that health checks were performed successfully.
+    assert!(
+        health_check_count > 100,
+        "Should have performed many health checks (got {})",
+        health_check_count
+    );
+
+    // Verify that we received substantial data on both ports despite constant health checks.
+    let protocol_str = String::from_utf8_lossy(&protocol_output);
+    let stderr_str = String::from_utf8_lossy(&stderr_output);
+
+    // Should have received most of the lines (allowing for some buffering delays at the end).
+    let protocol_line_count = protocol_str.matches("stdout_line_").count();
+    let stderr_line_count = stderr_str.matches("stderr_line_").count();
+
+    assert!(
+        protocol_line_count >= 250,
+        "Should have received most stdout lines despite health checks (got {})",
+        protocol_line_count
+    );
+
+    assert!(
+        stderr_line_count >= 250,
+        "Should have received most stderr lines despite health checks (got {})",
+        stderr_line_count
+    );
+
+    // Verify data integrity: check for a few specific lines.
+    assert!(protocol_str.contains("stdout_line_1"));
+    assert!(protocol_str.contains("stdout_line_100"));
+    assert!(stderr_str.contains("stderr_line_1"));
+    assert!(stderr_str.contains("stderr_line_100"));
 }
 
 #[test]
@@ -959,7 +1044,7 @@ fn test_works_with_various_executables() {
 
     // Test with various common executables.
 
-    // Test with echo via bash (shell command).
+    // Test with `echo` via `bash` (shell command).
     {
         let forwarder = TestForwarder::start("bash", &["-c", "echo test1 && sleep 2"]);
         let mut stream = forwarder.connect_protocol();
@@ -967,7 +1052,7 @@ fn test_works_with_various_executables() {
         assert!(String::from_utf8_lossy(&output).contains("test1"));
     }
 
-    // Test with printf.
+    // Test with `printf`.
     {
         let forwarder = TestForwarder::start("bash", &["-c", "printf test2 && sleep 2"]);
         let mut stream = forwarder.connect_protocol();
@@ -975,7 +1060,7 @@ fn test_works_with_various_executables() {
         assert!(String::from_utf8_lossy(&output).contains("test2"));
     }
 
-    // Test with cat (interactive).
+    // Test with `cat` (interactive).
     {
         let forwarder = TestForwarder::start("cat", &[]);
         let mut stream = forwarder.connect_protocol();
@@ -985,11 +1070,14 @@ fn test_works_with_various_executables() {
         assert!(String::from_utf8_lossy(&output).contains("test3"));
     }
 
-    // Test with a python script (if available).
+    // Test with a Python script (if available).
     {
-        let forwarder = TestForwarder::start("bash", &["-c", "echo test4 && sleep 2"]);
+        let forwarder = TestForwarder::start(
+            "python3",
+            &["-u", "-c", "import time; print('test4'); time.sleep(2)"],
+        );
         let mut stream = forwarder.connect_protocol();
-        let output = read_all_available(&mut stream, Duration::from_millis(500));
+        let output = read_all_available(&mut stream, Duration::from_millis(1000));
         assert!(String::from_utf8_lossy(&output).contains("test4"));
     }
 }
@@ -1004,7 +1092,7 @@ fn test_large_output_buffering() {
         "bash",
         &[
             "-c",
-            &format!("head -c {} /dev/zero | tr '\\0' 'A'; sleep 10", large_size),
+            &format!("head -c {large_size} /dev/zero | tr '\\0' 'A'; sleep 10"),
         ],
     );
 
@@ -1036,13 +1124,13 @@ fn test_large_output_buffering() {
 fn test_concurrent_stdin_stdout_bidirectional() {
     // Additional test: verify bidirectional communication works correctly.
 
-    // Use cat which echoes stdin to stdout.
+    // Use `cat` which echoes `stdin` to `stdout`.
     let forwarder = TestForwarder::start("cat", &[]);
     let mut stream = forwarder.connect_protocol();
 
     // Send multiple lines and verify echo.
     for i in 0..5 {
-        let message = format!("line {}\n", i);
+        let message = format!("line {i}\n");
         stream
             .write_all(message.as_bytes())
             .expect("Failed to write");
@@ -1050,6 +1138,6 @@ fn test_concurrent_stdin_stdout_bidirectional() {
 
         let output = read_all_available(&mut stream, Duration::from_millis(500));
         let output_str = String::from_utf8_lossy(&output);
-        assert!(output_str.contains(&format!("line {}", i)));
+        assert!(output_str.contains(&format!("line {i}")));
     }
 }
