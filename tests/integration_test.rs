@@ -363,7 +363,7 @@ fn test_forwarder_passes_arguments_unchanged() {
     );
 
     let mut stream = forwarder.connect_protocol();
-    let output = read_all_available(&mut stream, Duration::from_secs(2));
+    let output = read_all_available(&mut stream, Duration::from_millis(500));
 
     // `bash` should output all the arguments.
     let output_str = String::from_utf8_lossy(&output);
@@ -379,12 +379,12 @@ fn test_child_process_configurable_externally() {
     // Test with different commands to verify external configuration works.
     let forwarder1 = TestForwarder::start("bash", &["-c", "echo first && sleep 5"]);
     let mut stream1 = forwarder1.connect_protocol();
-    let output1 = read_all_available(&mut stream1, Duration::from_secs(1));
+    let output1 = read_all_available(&mut stream1, Duration::from_millis(500));
     assert!(String::from_utf8_lossy(&output1).contains("first"));
 
     let forwarder2 = TestForwarder::start("bash", &["-c", "printf second && sleep 5"]);
     let mut stream2 = forwarder2.connect_protocol();
-    let output2 = read_all_available(&mut stream2, Duration::from_secs(1));
+    let output2 = read_all_available(&mut stream2, Duration::from_millis(500));
     assert!(String::from_utf8_lossy(&output2).contains("second"));
 }
 
@@ -399,7 +399,7 @@ fn test_forwarder_exits_when_child_exits() {
     let _stream = forwarder.connect_protocol();
 
     // Wait for the child to exit (should happen after ~0.5s).
-    thread::sleep(Duration::from_millis(1000));
+    thread::sleep(Duration::from_millis(600));
 
     // Forwarder should have exited by now.
     assert!(
@@ -583,7 +583,7 @@ fn test_stdout_sent_over_protocol_port() {
     let forwarder = TestForwarder::start("bash", &["-c", "echo 'Hello from stdout' && sleep 5"]);
 
     let mut stream = forwarder.connect_protocol();
-    let output = read_all_available(&mut stream, Duration::from_secs(2));
+    let output = read_all_available(&mut stream, Duration::from_millis(500));
     let output_str = String::from_utf8_lossy(&output);
 
     assert!(output_str.contains("Hello from stdout"));
@@ -605,7 +605,7 @@ fn test_stdin_received_on_protocol_port() {
     stream.flush().expect("Failed to flush");
 
     // Read back the echoed output from stdout.
-    let output = read_all_available(&mut stream, Duration::from_secs(2));
+    let output = read_all_available(&mut stream, Duration::from_millis(500));
     let output_str = String::from_utf8_lossy(&output);
 
     assert!(output_str.contains("test input"));
@@ -619,7 +619,7 @@ fn test_stderr_sent_over_stderr_port() {
     let forwarder = TestForwarder::start("bash", &["-c", "echo 'error message' >&2 && sleep 5"]);
 
     let mut stream = forwarder.connect_stderr();
-    let output = read_all_available(&mut stream, Duration::from_secs(2));
+    let output = read_all_available(&mut stream, Duration::from_millis(500));
     let output_str = String::from_utf8_lossy(&output);
 
     assert!(output_str.contains("error message"));
@@ -684,9 +684,6 @@ fn test_stderr_port_single_client_only() {
     // First client connects successfully.
     let _stream1 = forwarder.connect_stderr();
 
-    // Give it a moment to establish.
-    thread::sleep(Duration::from_millis(200));
-
     // Second client should connect but be rejected.
     // According to the stderr_server implementation, it rejects additional connections.
     let stream2 = forwarder.connect_stderr();
@@ -740,10 +737,10 @@ fn test_protocol_port_buffered_stdout_replay() {
         ],
     );
 
-    // Wait a bit to ensure the first echo completes before we connect.
-    thread::sleep(Duration::from_millis(500));
+    // Now connect - buffering ensures we receive output produced before connection.
+    thread::sleep(Duration::from_millis(100));
 
-    // Now connect - we should receive the buffered output first.
+    // Connect and we should receive the buffered output first.
     let mut stream = forwarder.connect_protocol();
 
     // Read the output.
@@ -787,14 +784,14 @@ fn test_stderr_port_buffered_stderr_replay() {
         ],
     );
 
-    // Wait a bit to ensure the first echo completes before we connect.
-    thread::sleep(Duration::from_millis(500));
+    // Now connect to stderr - buffering ensures we receive output produced before connection.
+    thread::sleep(Duration::from_millis(100));
 
-    // Now connect to stderr - we should receive the buffered output first.
+    // Connect and we should receive the buffered output first.
     let mut stream = forwarder.connect_stderr();
 
     // Read the output.
-    let output = read_all_available(&mut stream, Duration::from_secs(3));
+    let output = read_all_available(&mut stream, Duration::from_secs(2));
     let output_str = String::from_utf8_lossy(&output);
 
     // Verify we got both buffered and realtime output.
@@ -813,7 +810,8 @@ fn test_stderr_disconnect_does_not_kill_child() {
         // Disconnect by dropping the stream.
     }
 
-    thread::sleep(Duration::from_millis(500));
+    // With proactive disconnect detection, disconnect is detected immediately.
+    thread::sleep(Duration::from_millis(100));
 
     // Forwarder should still be running - we can connect to health port.
     assert!(
@@ -843,7 +841,7 @@ fn test_stderr_port_reconnect_continues_from_current_state() {
     );
 
     // Wait to ensure "before_connection" is buffered
-    thread::sleep(Duration::from_millis(300));
+    thread::sleep(Duration::from_millis(100));
 
     // First connection - connect, read initial data, then disconnect BEFORE "trigger_disconnect"
     {
@@ -853,15 +851,16 @@ fn test_stderr_port_reconnect_continues_from_current_state() {
         let output_str = String::from_utf8_lossy(&output);
         assert!(output_str.contains("before_connection"));
         assert!(output_str.contains("during_first_connection"));
-        // Disconnect now (at ~t=1.1s), before "trigger_disconnect" (at t=1.5s)
+        // Disconnect now (at ~t=1.0s), before "trigger_disconnect" (at t=1.5s)
         let _ = stream.shutdown(std::net::Shutdown::Both);
         drop(stream);
     }
 
-    // Now we're at ~t=1.1s. "trigger_disconnect" will be produced at t=1.5s, which will
+    // Now we're at ~t=1.0s. "trigger_disconnect" will be produced at t=1.5s, which will
     // cause the server to try writing to the disconnected client and detect the disconnect.
-    // Wait for this to happen plus some margin, and for "while_disconnected" to be produced (at t=3s).
-    thread::sleep(Duration::from_millis(3000));
+    // With proactive disconnect detection, disconnect is detected quickly.
+    // Wait for "while_disconnected" to be produced (at t=3s from start).
+    thread::sleep(Duration::from_millis(2300));
 
     // Second connection - should receive buffered "while_disconnected" and realtime "during_second_connection"
     {
@@ -897,16 +896,16 @@ fn test_output_buffering_prevents_data_loss() {
         ],
     );
 
-    // Wait for output to be produced.
-    thread::sleep(Duration::from_millis(500));
+    // Buffering ensures output is captured even if we connect immediately.
+    thread::sleep(Duration::from_millis(100));
 
     // Now connect - we should receive the buffered output.
     let mut stdout_stream = forwarder.connect_protocol();
-    let stdout_data = read_all_available(&mut stdout_stream, Duration::from_secs(1));
+    let stdout_data = read_all_available(&mut stdout_stream, Duration::from_millis(500));
     let stdout_str = String::from_utf8_lossy(&stdout_data);
 
     let mut stderr_stream = forwarder.connect_stderr();
-    let stderr_data = read_all_available(&mut stderr_stream, Duration::from_secs(1));
+    let stderr_data = read_all_available(&mut stderr_stream, Duration::from_millis(500));
     let stderr_str = String::from_utf8_lossy(&stderr_data);
 
     assert!(stdout_str.contains("stdout message"));
@@ -947,7 +946,7 @@ fn test_health_checks_do_not_interfere() {
         .expect("Failed to write");
     protocol_stream.flush().expect("Failed to flush");
 
-    let output = read_all_available(&mut protocol_stream, Duration::from_secs(1));
+    let output = read_all_available(&mut protocol_stream, Duration::from_millis(500));
     assert!(String::from_utf8_lossy(&output).contains("test data"));
 
     // Stderr port should still work.
@@ -964,21 +963,17 @@ fn test_works_with_various_executables() {
     {
         let forwarder = TestForwarder::start("bash", &["-c", "echo test1 && sleep 2"]);
         let mut stream = forwarder.connect_protocol();
-        let output = read_all_available(&mut stream, Duration::from_secs(1));
+        let output = read_all_available(&mut stream, Duration::from_millis(500));
         assert!(String::from_utf8_lossy(&output).contains("test1"));
     }
-
-    thread::sleep(Duration::from_millis(200));
 
     // Test with printf.
     {
         let forwarder = TestForwarder::start("bash", &["-c", "printf test2 && sleep 2"]);
         let mut stream = forwarder.connect_protocol();
-        let output = read_all_available(&mut stream, Duration::from_secs(1));
+        let output = read_all_available(&mut stream, Duration::from_millis(500));
         assert!(String::from_utf8_lossy(&output).contains("test2"));
     }
-
-    thread::sleep(Duration::from_millis(200));
 
     // Test with cat (interactive).
     {
@@ -986,17 +981,15 @@ fn test_works_with_various_executables() {
         let mut stream = forwarder.connect_protocol();
         stream.write_all(b"test3\n").expect("Failed to write");
         stream.flush().expect("Failed to flush");
-        let output = read_all_available(&mut stream, Duration::from_secs(1));
+        let output = read_all_available(&mut stream, Duration::from_millis(500));
         assert!(String::from_utf8_lossy(&output).contains("test3"));
     }
-
-    thread::sleep(Duration::from_millis(200));
 
     // Test with a python script (if available).
     {
         let forwarder = TestForwarder::start("bash", &["-c", "echo test4 && sleep 2"]);
         let mut stream = forwarder.connect_protocol();
-        let output = read_all_available(&mut stream, Duration::from_secs(1));
+        let output = read_all_available(&mut stream, Duration::from_millis(500));
         assert!(String::from_utf8_lossy(&output).contains("test4"));
     }
 }
@@ -1016,7 +1009,7 @@ fn test_large_output_buffering() {
     );
 
     // Wait for output to be generated.
-    thread::sleep(Duration::from_millis(500));
+    thread::sleep(Duration::from_millis(200));
 
     // Connect and read the buffered output.
     let mut stream = forwarder.connect_protocol();
