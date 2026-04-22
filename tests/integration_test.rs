@@ -8,6 +8,8 @@ use std::{
     time::Duration,
 };
 
+use crate::lsp_client::LspClient;
+
 // Global registry tracking all currently allocated ports across all tests used so
 // that tests can allocate ports in parallel as long as they don’t conflict.
 static ALLOCATED_PORTS_REGISTRY: LazyLock<Mutex<HashSet<u16>>> =
@@ -1140,4 +1142,83 @@ fn test_concurrent_stdin_stdout_bidirectional() {
         let output_str = String::from_utf8_lossy(&output);
         assert!(output_str.contains(&format!("line {i}")));
     }
+}
+
+// ============================================================================
+// LSP INTEGRATION TEST
+// ============================================================================
+
+mod lsp_client;
+
+#[test]
+fn test_lsp_rust_analyzer_integration() {
+    // Test that stdioxide can successfully tunnel LSP communication with `rust-analyzer`.
+    // This validates the real-world use case of running a language server through the forwarder.
+
+    let mut forwarder = TestForwarder::start("rust-analyzer", &[]);
+    let stream = forwarder.connect_protocol();
+
+    let mut lsp = LspClient::new(stream);
+
+    // Initialize the LSP server.
+    let workspace_path = std::env::current_dir()
+        .expect("Failed to get current directory")
+        .to_string_lossy()
+        .to_string();
+    let root_uri = format!("file://{}", workspace_path);
+
+    let init_response = lsp.initialize(&root_uri);
+
+    assert_eq!(init_response["jsonrpc"], "2.0");
+    assert!(
+        init_response["result"]["capabilities"].is_object(),
+        "Should receive server capabilities"
+    );
+
+    // Send initialized notification.
+    lsp.initialized();
+
+    // Open a document (src/main.rs).
+    let main_rs_path = format!("{workspace_path}/src/main.rs");
+    let main_rs_uri = format!("file://{main_rs_path}");
+    let main_rs_content =
+        std::fs::read_to_string(&main_rs_path).expect("Failed to read src/main.rs");
+
+    lsp.did_open(&main_rs_uri, "rust", main_rs_content);
+
+    // Request document symbols.
+    let symbols_response = lsp.document_symbol(&main_rs_uri);
+
+    assert_eq!(symbols_response["jsonrpc"], "2.0");
+
+    // Verify we got some symbols (src/main.rs should have at least the main function).
+    let symbols = symbols_response["result"]
+        .as_array()
+        .expect("Expected array of symbols");
+
+    assert!(
+        !symbols.is_empty(),
+        "Should have received symbols for src/main.rs"
+    );
+
+    // Verify at least one symbol has a name (e.g., "main").
+    let has_named_symbol = symbols.iter().any(|sym| sym["name"].is_string());
+    assert!(
+        has_named_symbol,
+        "Should have at least one named symbol in src/main.rs"
+    );
+
+    // Shutdown the LSP server.
+    let shutdown_response = lsp.shutdown();
+    assert_eq!(shutdown_response["result"], serde_json::Value::Null);
+
+    // Exit notification is sent automatically when lsp is dropped.
+    drop(lsp);
+
+    // Forwarder should terminate after LSP client disconnects from protocol port
+    // or because the LSP server process exits on shutdown (either reason is okay).
+    assert!(
+        forwarder.wait_for_exit(),
+        "Forwarder should exit after LSP client disconnects from protocol port"
+    );
 }

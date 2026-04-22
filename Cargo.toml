@@ -7,3 +7,7 @@ edition = "2024"
 anyhow = "1.0.102"
 clap = { version = "4.6.1", features = ["derive", "env"] }
 subprocess = "1.0.3"
+
+[dev-dependencies]
+lsp-types = "0.95"
+serde_json = "1.0"
