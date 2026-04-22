@@ -76,6 +76,7 @@ pub fn stderr_server(
 
                     let has_active_connection_clone = Arc::clone(&has_active_connection);
                     let has_active_connection_monitor = Arc::clone(&has_active_connection);
+                    let has_active_connection_write = Arc::clone(&has_active_connection);
                     let stderr_state = Arc::clone(&stderr_state);
                     let control_tx = control_tx.clone();
 
@@ -93,7 +94,7 @@ pub fn stderr_server(
                             stream,
                             stderr_state,
                             control_tx,
-                            ServingBehavior::DoNotKillChildOnDisconnect,
+                            ServingBehavior::DoNotKillChildOnDisconnect(Arc::clone(&has_active_connection_write)),
                             "stderr",
                         );
                         // When the write thread finishes, also clear the connection flag

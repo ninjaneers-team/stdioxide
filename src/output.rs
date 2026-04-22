@@ -1,15 +1,18 @@
 use std::{
     io::{Read, Write},
     net::TcpStream,
-    sync::{Arc, Condvar, Mutex, mpsc},
+    sync::{
+        Arc, Condvar, Mutex, mpsc,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 use crate::control::ControlMessage;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum ServingBehavior {
     KillChildOnDisconnect,
-    DoNotKillChildOnDisconnect,
+    DoNotKillChildOnDisconnect(Arc<AtomicBool>),
 }
 
 pub struct OutputState {
@@ -125,6 +128,15 @@ pub fn serve_output_on_stream(
             }
         }
 
+        // Before draining the buffer, check if the connection is still active (for `stderr` reconnect support).
+        // If the read monitoring thread detected a disconnect, we should NOT drain the buffer to prevent data loss.
+        if let ServingBehavior::DoNotKillChildOnDisconnect(ref active) = serving_behavior && !active.load(Ordering::Acquire) {
+            eprintln!(
+                "[{label}] Connection no longer active (detected by monitoring thread); exiting without draining buffer to prevent data loss"
+            );
+            return Ok(());
+        }
+
         let mut guard = output_state
             .state
             .lock()
@@ -139,7 +151,7 @@ pub fn serve_output_on_stream(
             // Something went wrong while writing to the stream, and we weren’t able to write all the buffered data.
             // We treat this as the connection being no longer writable and exit the loop (and potentially kill the
             // child process, depending on the serving behavior).
-            if serving_behavior == ServingBehavior::KillChildOnDisconnect {
+            if matches!(serving_behavior, ServingBehavior::KillChildOnDisconnect) {
                 let _ = control_tx.send(ControlMessage::KillChild);
             }
             return Ok(());
