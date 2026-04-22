@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - '**'
+  pull_request:
+
+jobs:
+  rust:
+    name: ${{ matrix.os }} / ${{ matrix.profile }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+          - macos-latest
+        profile:
+          - debug
+          - release
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install stable Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy,rust-analyzer
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Show tool versions
+        shell: bash
+        run: |
+          rustc --version
+          cargo --version
+          cargo clippy --version
+          rust-analyzer --version
+
+      - name: cargo check
+        shell: bash
+        run: |
+          if [ "${{ matrix.profile }}" = "release" ]; then
+            cargo check --all-targets --all-features --release
+          else
+            cargo check --all-targets --all-features
+          fi
+
+      - name: cargo test
+        shell: bash
+        run: |
+          if [ "${{ matrix.profile }}" = "release" ]; then
+            cargo test --all-targets --all-features --release
+          else
+            cargo test --all-targets --all-features
+          fi
+
+      - name: cargo clippy
+        shell: bash
+        run: |
+          if [ "${{ matrix.profile }}" = "release" ]; then
+            cargo clippy --all-targets --all-features --release -- -D warnings
+          else
+            cargo clippy --all-targets --all-features -- -D warnings
+          fi
