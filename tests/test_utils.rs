@@ -1,11 +1,11 @@
-/// Cross-platform test utilities for spawning commands that work on both Unix and Windows.
-///
-/// This module provides helper functions that abstract over platform-specific commands.
-/// On Unix, commands use `bash`, `sleep`, `cat`, etc.
-/// On Windows, commands use `cmd`, `powershell`, `ping` (for delays), etc.
-///
-/// The goal is to make integration tests work on all platforms without #[cfg(not(windows))]
-/// guards scattered throughout the test code.
+//! Cross-platform test utilities for spawning commands that work on both Unix and Windows.
+//!
+//! This module provides helper functions that abstract over platform-specific commands.
+//! On Unix, commands use `bash`, `sleep`, `cat`, etc.
+//! On Windows, commands use `cmd`, `powershell`, `ping` (for delays), etc.
+//!
+//! The goal is to make integration tests work on all platforms without #[cfg(not(windows))]
+//! guards scattered throughout the test code.
 
 #[cfg(windows)]
 pub fn sleep_cmd(seconds: u32) -> (&'static str, Vec<String>) {
