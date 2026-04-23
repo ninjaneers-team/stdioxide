@@ -10,6 +10,21 @@ on:
   workflow_dispatch:
 
 jobs:
+  fmt:
+    name: Format Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install stable Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Check formatting
+        run: cargo fmt --check
+
   rust:
     name: ${{ matrix.os }} / ${{ matrix.profile }}
     runs-on: ${{ matrix.os }}
