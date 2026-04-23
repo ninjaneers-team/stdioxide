@@ -599,7 +599,8 @@ fn test_stdin_received_on_protocol_port() {
     stream.flush().expect("Failed to flush");
 
     // Read back the echoed output from `stdout`.
-    let output = read_all_available(&mut stream, Duration::from_millis(500));
+    // Increased timeout to account for PowerShell startup on Windows
+    let output = read_all_available(&mut stream, Duration::from_millis(1500));
     let output_str = String::from_utf8_lossy(&output);
 
     assert!(output_str.contains("test input"));
@@ -635,7 +636,8 @@ fn test_protocol_port_single_client_only() {
     // Verify first client works.
     stream1.write_all(b"test\n").expect("Failed to write");
     stream1.flush().expect("Failed to flush");
-    let output = read_all_available(&mut stream1, Duration::from_millis(500));
+    // Increased timeout to account for PowerShell startup and buffering on Windows
+    let output = read_all_available(&mut stream1, Duration::from_millis(1500));
     assert!(String::from_utf8_lossy(&output).contains("response"));
 
     // Second client connection attempt.
@@ -1078,6 +1080,7 @@ fn test_works_with_various_executables() {
     }
 
     // Test with a Python script (if available).
+    // Note: Python startup can be slow on Windows, so we use a longer timeout.
     {
         let python = python_cmd();
         let forwarder = TestForwarder::start(
@@ -1085,8 +1088,15 @@ fn test_works_with_various_executables() {
             &["-u", "-c", "import time; print('test4'); time.sleep(2)"],
         );
         let mut stream = forwarder.connect_protocol();
-        let output = read_all_available(&mut stream, Duration::from_millis(1000));
-        assert!(String::from_utf8_lossy(&output).contains("test4"));
+        // Delay to ensure Python has started and produced output.
+        thread::sleep(Duration::from_millis(300));
+        // Increased timeout to account for Python interpreter startup (especially on Windows).
+        let output = read_all_available(&mut stream, Duration::from_millis(3000));
+        assert!(
+            String::from_utf8_lossy(&output).contains("test4"),
+            "Expected 'test4' in output, got: {:?}",
+            String::from_utf8_lossy(&output)
+        );
     }
 }
 
@@ -1142,9 +1152,14 @@ fn test_concurrent_stdin_stdout_bidirectional() {
             .expect("Failed to write");
         stream.flush().expect("Failed to flush");
 
-        let output = read_all_available(&mut stream, Duration::from_millis(500));
+        // Increased timeout for PowerShell on Windows.
+        let output = read_all_available(&mut stream, Duration::from_millis(1000));
         let output_str = String::from_utf8_lossy(&output);
-        assert!(output_str.contains(&format!("line {i}")));
+        assert!(
+            output_str.contains(&format!("line {i}")),
+            "Expected 'line {i}' in output, got: {:?}",
+            output_str
+        );
     }
 }
 

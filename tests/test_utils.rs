@@ -153,13 +153,14 @@ pub fn multi_echo_stdout_cmd(
 
 #[cfg(windows)]
 pub fn cat_cmd() -> (&'static str, Vec<String>) {
-    // PowerShell can read from stdin and write to stdout
+    // PowerShell that reads from stdin and writes to stdout with immediate flushing
+    // Use [Console]::In to read from stdin (not console keyboard)
     (
         "powershell",
         vec![
             "-NoProfile".to_string(),
             "-Command".to_string(),
-            "$input | Write-Output".to_string(),
+            "while($line = [Console]::In.ReadLine()) { [Console]::WriteLine($line) }".to_string(),
         ],
     )
 }
@@ -172,12 +173,13 @@ pub fn cat_cmd() -> (&'static str, Vec<String>) {
 #[cfg(windows)]
 pub fn loop_stdin_to_stdout_cmd() -> (&'static str, Vec<String>) {
     // PowerShell script that reads line by line and echoes
+    // Use [Console]::In to read from stdin and [Console]::WriteLine() for immediate flushing
     (
         "powershell",
         vec![
             "-NoProfile".to_string(),
             "-Command".to_string(),
-            "while($line = [Console]::ReadLine()) { Write-Output 'response' }".to_string(),
+            "while($line = [Console]::In.ReadLine()) { [Console]::WriteLine('response') }".to_string(),
         ],
     )
 }
