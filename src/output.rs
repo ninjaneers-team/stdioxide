@@ -2,8 +2,9 @@ use std::{
     io::{Read, Write},
     net::TcpStream,
     sync::{
-        Arc, Condvar, Mutex, mpsc,
+        Arc, Condvar, Mutex,
         atomic::{AtomicBool, Ordering},
+        mpsc,
     },
 };
 
@@ -130,7 +131,9 @@ pub fn serve_output_on_stream(
 
         // Before draining the buffer, check if the connection is still active (for `stderr` reconnect support).
         // If the read monitoring thread detected a disconnect, we should NOT drain the buffer to prevent data loss.
-        if let ServingBehavior::DoNotKillChildOnDisconnect(ref active) = serving_behavior && !active.load(Ordering::Acquire) {
+        if let ServingBehavior::DoNotKillChildOnDisconnect(ref active) = serving_behavior
+            && !active.load(Ordering::Acquire)
+        {
             eprintln!(
                 "[{label}] Connection no longer active (detected by monitoring thread); exiting without draining buffer to prevent data loss"
             );

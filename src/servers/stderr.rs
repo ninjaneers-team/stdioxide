@@ -94,7 +94,9 @@ pub fn stderr_server(
                             stream,
                             stderr_state,
                             control_tx,
-                            ServingBehavior::DoNotKillChildOnDisconnect(Arc::clone(&has_active_connection_write)),
+                            ServingBehavior::DoNotKillChildOnDisconnect(Arc::clone(
+                                &has_active_connection_write,
+                            )),
                             "stderr",
                         );
                         // When the write thread finishes, also clear the connection flag
