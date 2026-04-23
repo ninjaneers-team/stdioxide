@@ -36,6 +36,11 @@ jobs:
 
       - name: Cache Rust artifacts
         uses: Swatinem/rust-cache@v2
+        with:
+          # Include profile in cache key to separate debug/release caches.
+          key: ${{ matrix.profile }}
+          # Save cache even if subsequent steps fail.
+          save-if: true
 
       - name: Show tool versions
         shell: bash
