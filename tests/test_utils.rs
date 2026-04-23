@@ -179,7 +179,8 @@ pub fn loop_stdin_to_stdout_cmd() -> (&'static str, Vec<String>) {
         vec![
             "-NoProfile".to_string(),
             "-Command".to_string(),
-            "while($line = [Console]::In.ReadLine()) { [Console]::WriteLine('response') }".to_string(),
+            "while($line = [Console]::In.ReadLine()) { [Console]::WriteLine('response') }"
+                .to_string(),
         ],
     )
 }
