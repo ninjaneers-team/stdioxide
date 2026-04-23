@@ -153,14 +153,14 @@ pub fn multi_echo_stdout_cmd(
 
 #[cfg(windows)]
 pub fn cat_cmd() -> (&'static str, Vec<String>) {
-    // PowerShell that reads from stdin and writes to stdout with immediate flushing
-    // Use [Console]::In to read from stdin (not console keyboard)
+    // Use Python for reliable line-by-line I/O on Windows.
+    // `-u` flag disables buffering for immediate output.
     (
-        "powershell",
+        python_cmd(),
         vec![
-            "-NoProfile".to_string(),
-            "-Command".to_string(),
-            "while($line = [Console]::In.ReadLine()) { [Console]::WriteLine($line) }".to_string(),
+            "-u".to_string(),
+            "-c".to_string(),
+            "import sys; [print(line.rstrip()) for line in sys.stdin]".to_string(),
         ],
     )
 }

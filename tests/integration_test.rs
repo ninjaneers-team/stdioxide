@@ -1152,8 +1152,8 @@ fn test_concurrent_stdin_stdout_bidirectional() {
             .expect("Failed to write");
         stream.flush().expect("Failed to flush");
 
-        // Increased timeout for PowerShell on Windows.
-        let output = read_all_available(&mut stream, Duration::from_millis(1000));
+        // Increased timeout for Python startup on Windows.
+        let output = read_all_available(&mut stream, Duration::from_millis(1500));
         let output_str = String::from_utf8_lossy(&output);
         assert!(
             output_str.contains(&format!("line {i}")),
