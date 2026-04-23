@@ -1003,9 +1003,12 @@ fn test_health_checks_do_not_interfere() {
     let stderr_output = stderr_handle.join().expect("Stderr thread panicked");
 
     // Verify that health checks were performed successfully.
+    // Note: The count varies significantly by platform (Linux/Windows: ~150+, macOS: ~35-40)
+    // due to differences in TCP connection establishment speed. We just verify that
+    // a reasonable number of health checks occurred without interfering with data transfer.
     assert!(
-        health_check_count > 100,
-        "Should have performed many health checks (got {})",
+        health_check_count > 20,
+        "Should have performed multiple health checks (got {})",
         health_check_count
     );
 
