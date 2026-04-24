@@ -10,6 +10,21 @@ on:
   workflow_dispatch:
 
 jobs:
+  fmt:
+    name: Format Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install stable Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Check formatting
+        run: cargo fmt --check
+
   rust:
     name: ${{ matrix.os }} / ${{ matrix.profile }}
     runs-on: ${{ matrix.os }}
@@ -27,7 +42,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install stable Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -36,6 +51,11 @@ jobs:
 
       - name: Cache Rust artifacts
         uses: Swatinem/rust-cache@v2
+        with:
+          # Include profile in cache key to separate debug/release caches.
+          key: ${{ matrix.profile }}
+          # Save cache even if subsequent steps fail.
+          save-if: true
 
       - name: Show tool versions
         shell: bash
