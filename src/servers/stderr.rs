@@ -1,3 +1,5 @@
+//! `stderr` TCP server with reconnection support and output buffering.
+
 use std::{
     io::Read,
     net::{TcpListener, TcpStream},
@@ -9,6 +11,8 @@ use std::{
     thread,
 };
 
+use tracing::{debug, info, warn};
+
 use crate::{
     control::ControlMessage,
     output::{NotifyableOutputState, ServingBehavior, serve_output_on_stream},
@@ -19,25 +23,27 @@ use crate::{
 /// When disconnection is detected, the atomic flag is cleared to allow new connections.
 fn monitor_stderr_client_connection(
     mut stream: TcpStream,
-    has_active_connection: Arc<AtomicBool>,
+    has_active_connection: &Arc<AtomicBool>,
 ) -> Result<(), anyhow::Error> {
-    let mut read_buffer = [0u8; 1];
+    let mut read_buffer = [0_u8; 1];
     loop {
         match stream.read(&mut read_buffer) {
             Ok(0) => {
                 // EOF; client disconnected gracefully.
-                eprintln!("[stderr] client disconnect detected");
+                debug!("[stderr] client disconnect detected");
                 has_active_connection.store(false, Ordering::Release);
                 return Ok(());
             }
             Ok(_) => {
                 // Ignore any data sent by client (unexpected but harmless).
             }
-            Err(e) => {
+            Err(error) => {
                 // Error reading; treat as disconnection.
-                eprintln!("[stderr] read error (client likely disconnected): {e}");
+                debug!("[stderr] read error (client likely disconnected): {error}");
                 has_active_connection.store(false, Ordering::Release);
-                return Err(anyhow::anyhow!("Failed to read from stderr client: {e}"));
+                return Err(anyhow::anyhow!(
+                    "Failed to read from stderr client: {error}"
+                ));
             }
         }
     }
@@ -47,10 +53,10 @@ fn monitor_stderr_client_connection(
 /// to the first client that connects. If that client disconnects, we wait for the next client to connect
 /// and serve the current `stderr` output to them instead, and so on. The function spawns two threads
 /// for each client connection: one for monitoring disconnection and one for writing output.
-pub fn stderr_server(
-    listener: TcpListener,
-    stderr_state: Arc<NotifyableOutputState>,
-    control_tx: mpsc::Sender<ControlMessage>,
+pub(crate) fn stderr_server(
+    listener: &TcpListener,
+    stderr_state: &Arc<NotifyableOutputState>,
+    control_tx: &mpsc::Sender<ControlMessage>,
 ) -> Result<(), anyhow::Error> {
     // We allow reconnects on the `stderr` port, but only one client at a time. When a client disconnects,
     // we simply wait for the next one to connect.
@@ -63,12 +69,12 @@ pub fn stderr_server(
                     .is_ok()
                 {
                     // Atomic value has been successfully changed from `false` to `true`.
-                    eprintln!("[stderr] client connected from {}", stream.peer_addr()?);
+                    info!("[stderr] client connected from {}", stream.peer_addr()?);
 
                     let connection_monitoring_stream = match stream.try_clone() {
-                        Ok(s) => s,
-                        Err(e) => {
-                            eprintln!("[stderr] failed to clone stream: {e}");
+                        Ok(stream) => stream,
+                        Err(error) => {
+                            warn!("[stderr] failed to clone stream: {error}");
                             has_active_connection.store(false, Ordering::Release);
                             continue;
                         }
@@ -77,42 +83,42 @@ pub fn stderr_server(
                     let has_active_connection_clone = Arc::clone(&has_active_connection);
                     let has_active_connection_monitor = Arc::clone(&has_active_connection);
                     let has_active_connection_write = Arc::clone(&has_active_connection);
-                    let stderr_state = Arc::clone(&stderr_state);
+                    let stderr_state = Arc::clone(stderr_state);
                     let control_tx = control_tx.clone();
 
                     // Spawn read monitoring thread to detect disconnection proactively.
                     thread::spawn(move || {
-                        let _ = monitor_stderr_client_connection(
+                        drop(monitor_stderr_client_connection(
                             connection_monitoring_stream,
-                            has_active_connection_monitor,
-                        );
+                            &has_active_connection_monitor,
+                        ));
                     });
 
                     // Spawn write thread to serve stderr output.
                     thread::spawn(move || {
-                        let _ = serve_output_on_stream(
+                        drop(serve_output_on_stream(
                             stream,
-                            stderr_state,
-                            control_tx,
-                            ServingBehavior::DoNotKillChildOnDisconnect(Arc::clone(
+                            &stderr_state,
+                            &control_tx,
+                            &ServingBehavior::DoNotKillChildOnDisconnect(Arc::clone(
                                 &has_active_connection_write,
                             )),
                             "stderr",
-                        );
+                        ));
                         // When the write thread finishes, also clear the connection flag
                         // (idempotent if the read thread already did this).
                         has_active_connection_clone.store(false, Ordering::Release);
                     });
                 } else {
                     // Atomic value was already `true`, so there is already an active connection.
-                    eprintln!(
+                    info!(
                         "[stderr] client connected from {}, but another client is already connected; rejecting connection",
                         stream.peer_addr()?
                     );
                 }
             }
-            Err(e) => {
-                eprintln!("[stderr] accept failed: {e}");
+            Err(error) => {
+                warn!("[stderr] accept failed: {error}");
             }
         }
     }

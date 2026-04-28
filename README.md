@@ -113,6 +113,16 @@ cargo test
 
 This project was developed with AI assistance using GitHub Copilot and Claude Sonnet 4.5.
 
+### Pre-commit Hooks
+
+To enable pre-commit hooks that run tests and linting before commits, run:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+This will ensure code quality checks run automatically before each commit.
+
 ## License
 
 See LICENSE file for details.

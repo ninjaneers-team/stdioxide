@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cargo fmt --all
+
+if ! git diff --quiet; then
+    echo "cargo fmt changed files. Please review and stage the formatting changes."
+    exit 1
+fi
+
+cargo check --all-targets --all-features
+cargo test --all-targets --all-features
